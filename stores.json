@@ -1,0 +1,64 @@
+{
+  "stores": [
+    {
+      "name": "ישפאר (Outlet)",
+      "type": "shopify",
+      "url": "https://outlet.isfar.co.il/collections/קונסולות",
+      "warranty_note": "באתר כתוב 'יבואן רשמי', אבל לא נמצא ניסוח מפורש של אחריות על המוצר. לוודא לפני קנייה."
+    },
+    {
+      "name": "קרביץ",
+      "type": "shopify",
+      "url": "https://www.kravitz.co.il/collections/קונסולות-משחק"
+    },
+    {
+      "name": "Ivory",
+      "type": "jsonld_list",
+      "url": "https://www.ivory.co.il/Sony_Playstation_5.html",
+      "warranty_note": "בדף כתוב 'שנה אחריות באייבורי' ולא מפורש שזו אחריות יבואן. לוודא מול החנות."
+    },
+    {
+      "name": "Bug",
+      "type": "product_pages",
+      "product_urls": [
+        "https://www.bug.co.il/brand/sony/playstation/5/slim/digital",
+        "https://www.bug.co.il/brand/sony/playstation/5/slim/825g",
+        "https://www.bug.co.il/brand/sony/playstation/5/slim/",
+        "https://www.bug.co.il/brand/sony/playstation/5/slim/2controllers"
+      ],
+      "discover": {
+        "category_urls": ["https://www.bug.co.il/consoles/"],
+        "link_regex": "/brand/[^\"\\s]*(playstation|ps5|sony)[^\"\\s]*",
+        "skip_regex": "(cover|stand|portal|vr2|/store/|code|gift|dualsense|controller|headset|pulse)"
+      },
+      "max_pages": 25
+    },
+    {
+      "name": "KSP",
+      "type": "auto",
+      "experimental": true,
+      "url": "https://ksp.co.il/web/cat/15931"
+    },
+    {
+      "name": "מחסני חשמל (Pay N Go)",
+      "type": "auto",
+      "experimental": true,
+      "url": "https://www.payngo.co.il/computers-pcs/gaming-produc/gaming-console.html?manufacturer=328"
+    },
+    {
+      "name": "א.ל.מ",
+      "type": "auto",
+      "experimental": true,
+      "url": "https://www.alm.co.il/smartphones-laptops-techproducts/gaming-consoles.html?brand%5Bfilter%5D=SONY%2C618"
+    },
+    {
+      "name": "CWC",
+      "type": "product_pages",
+      "experimental": true,
+      "product_urls": [
+        "https://www.cwc.co.il/product/קונסולת-פלייסטיישן-5-playstation-5-slim-1tb-blu-ray-סוני-sony/"
+      ],
+      "warranty_note": "לא ידוע אם החנות מוכרת עם אחריות יבואן. לוודא."
+    }
+  ]
+}

@@ -26,6 +26,10 @@ HERE = Path(__file__).resolve().parent
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) ps5-stock-monitor/1.0"
 FAILS_BEFORE_ALERT = 3          # כמה ריצות רצופות כושלות לפני התראה על חנות
 HEARTBEAT_SECONDS = 7 * 24 * 3600
+STORE_DELAY = 2                 # שניות בין חנויות, כדי לא להציף אתרים
+PAGE_DELAY = 1                  # שניות בין דפי מוצר באותה חנות
+MAX_RETRY_WAIT = 60             # תקרה להמתנה לפי Retry-After
+_sleep = time.sleep
 BLOCK_MARKERS = ("_incapsula_resource", "captcha", "access denied", "הגישה נחסמה", "cf-chl", "attention required")
 AVAILABLE_VALUES = {"instock", "limitedavailability", "onlineonly", "instoreonly"}
 
@@ -72,11 +76,37 @@ class Blocked(FetchError):
     pass
 
 
+class RateLimited(Exception):
+    def __init__(self, wait: int):
+        super().__init__(f"429, wait {wait}s")
+        self.wait = wait
+
+
 def quote_url(url: str) -> str:
     return urllib.parse.quote(url, safe=":/?&=%+,#@!$'()*;~-._[]")
 
 
+def _retry_after(headers) -> int:
+    try:
+        return max(1, min(int(headers.get("Retry-After", "")), MAX_RETRY_WAIT))
+    except (TypeError, ValueError):
+        return 10
+
+
 def fetch(url: str, timeout: int = 30) -> str:
+    """קורא דף. על HTTP 429 ממתין לפי Retry-After ומנסה פעם נוספת."""
+    for attempt in (1, 2):
+        try:
+            return _fetch_once(url, timeout)
+        except RateLimited as e:
+            if attempt == 2:
+                raise Blocked(f"החנות מגבילה קצב (HTTP 429), גם אחרי המתנה של {e.wait} שניות") from e
+            print(f"  429 מ-{urllib.parse.urlsplit(url).netloc}, ממתין {e.wait} שניות ומנסה שוב")
+            _sleep(e.wait)
+    raise AssertionError("unreachable")
+
+
+def _fetch_once(url: str, timeout: int) -> str:
     req = urllib.request.Request(
         quote_url(url),
         headers={
@@ -91,12 +121,14 @@ def fetch(url: str, timeout: int = 30) -> str:
             raw = resp.read()
             charset = resp.headers.get_content_charset() or "utf-8"
     except urllib.error.HTTPError as e:
+        if e.code == 429:
+            raise RateLimited(_retry_after(e.headers)) from e
         status, raw, charset = e.code, e.read(), "utf-8"
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise FetchError(f"שגיאת רשת: {e}") from e
     text = raw.decode(charset, errors="replace")
-    if status in (403, 429):
-        raise Blocked(f"החנות חסמה את הבקשה (HTTP {status})")
+    if status == 403:
+        raise Blocked("החנות חסמה את הבקשה (HTTP 403)")
     if status >= 400:
         raise FetchError(f"HTTP {status}")
     if len(text) < 30000 and any(m in text.lower() for m in BLOCK_MARKERS):
@@ -114,6 +146,11 @@ def _offer_availability(offers) -> tuple[bool | None, str | None]:
     if "offers" in offers and "availability" not in offers:
         return _offer_availability(offers["offers"])
     price = offers.get("price") or offers.get("lowPrice")
+    if price is None:
+        spec = offers.get("priceSpecification")
+        spec = spec[0] if isinstance(spec, list) and spec else spec
+        if isinstance(spec, dict):
+            price = spec.get("price")
     avail = offers.get("availability")
     if avail is None:
         return None, str(price) if price is not None else None
@@ -231,7 +268,9 @@ def check_product_pages(store: dict) -> tuple[int, list[Item]]:
                     urls.append(full)
         urls = urls[: store.get("max_pages", 25)]
     items, errors = [], []
-    for u in urls:
+    for n, u in enumerate(urls):
+        if n:
+            _sleep(PAGE_DELAY)
         try:
             item = parse_product_page(u, fetch(u), store["name"])
         except FetchError as e:
@@ -352,7 +391,9 @@ def load_stores(path: Path) -> list[dict]:
 # --- הרצה -----------------------------------------------------------------------
 def run_once(stores: list[dict], state: dict, send=True) -> None:
     now = int(time.time())
-    for store in stores:
+    for n, store in enumerate(stores):
+        if n:
+            _sleep(STORE_DELAY)
         name = store["name"]
         st = state["stores"].setdefault(name, {"fails": 0, "alerted": False})
         try:
@@ -385,7 +426,9 @@ def run_once(stores: list[dict], state: dict, send=True) -> None:
 
 
 def run_check(stores: list[dict]) -> None:
-    for store in stores:
+    for n, store in enumerate(stores):
+        if n:
+            _sleep(STORE_DELAY)
         print(f"\n== {store['name']} ({store['type']})")
         try:
             total, items = run_store(store)

@@ -55,13 +55,14 @@ class Fake:
 class RunTests(unittest.TestCase):
     def setUp(self):
         self.sent = []
-        self._orig_fetch, self._orig_notify = monitor.fetch, monitor.notify
+        self._orig_fetch, self._orig_notify, self._orig_sleep = monitor.fetch, monitor.notify, monitor._sleep
+        monitor._sleep = lambda s: None
         monitor.notify = lambda title, message, **kw: self.sent.append((title, message, kw)) or True
         self.krav = json.loads((FIX / "kravitz_products.json").read_text(encoding="utf-8"))
         self.store = {"name": "קרביץ", "type": "shopify", "url": "https://shop.example/collections/x"}
 
     def tearDown(self):
-        monitor.fetch, monitor.notify = self._orig_fetch, self._orig_notify
+        monitor.fetch, monitor.notify, monitor._sleep = self._orig_fetch, self._orig_notify, self._orig_sleep
 
     def set_stock(self, available):
         data = copy.deepcopy(self.krav)
@@ -150,6 +151,75 @@ class RunTests(unittest.TestCase):
                 monitor.fetch("https://x.example/")
         finally:
             monitor.urllib.request.urlopen = orig
+
+
+class RateLimitTests(unittest.TestCase):
+    def setUp(self):
+        self.sleeps = []
+        self._orig = (monitor._sleep, monitor.urllib.request.urlopen)
+        monitor._sleep = self.sleeps.append
+
+    def tearDown(self):
+        monitor._sleep, monitor.urllib.request.urlopen = self._orig
+
+    @staticmethod
+    def _err(retry_after):
+        import email.message
+        import urllib.error
+        h = email.message.Message()
+        if retry_after is not None:
+            h["Retry-After"] = retry_after
+        return urllib.error.HTTPError("https://x.example/", 429, "Too Many", h, None)
+
+    @staticmethod
+    def _ok(body="<html>ok</html>"):
+        class R:
+            status = 200
+            headers = type("H", (), {"get_content_charset": lambda s: "utf-8"})()
+            def read(self): return body.encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        return R()
+
+    def test_retries_once_then_succeeds(self):
+        calls = iter([self._err("7"), self._ok()])
+        def fake(*a, **k):
+            r = next(calls)
+            if isinstance(r, Exception):
+                raise r
+            return r
+        monitor.urllib.request.urlopen = fake
+        self.assertIn("ok", monitor.fetch("https://x.example/"))
+        self.assertEqual(self.sleeps, [7])
+
+    def test_gives_up_after_second_429(self):
+        def fake(*a, **k):
+            raise self._err(None)
+        monitor.urllib.request.urlopen = fake
+        with self.assertRaises(monitor.Blocked):
+            monitor.fetch("https://x.example/")
+        self.assertEqual(self.sleeps, [10])             # ברירת מחדל כשאין Retry-After
+
+    def test_retry_after_is_capped(self):
+        calls = iter([self._err("99999"), self._ok()])
+        def fake(*a, **k):
+            r = next(calls)
+            if isinstance(r, Exception):
+                raise r
+            return r
+        monitor.urllib.request.urlopen = fake
+        monitor.fetch("https://x.example/")
+        self.assertEqual(self.sleeps, [monitor.MAX_RETRY_WAIT])
+
+    def test_price_from_price_specification(self):
+        page = (
+            '<title>קונסולה PS5 Slim</title><script type="application/ld+json">'
+            '{"@type":"Product","name":"PS5","offers":[{"@type":"Offer","availability":"https://schema.org/InStock",'
+            '"priceSpecification":[{"@type":"UnitPriceSpecification","price":"2499.00"}]}]}</script>'
+        )
+        item = monitor.parse_product_page("https://x/p", page, "CWC")
+        self.assertTrue(item.available)
+        self.assertEqual(item.price, "2499.00")
 
 
 class NtfyTests(unittest.TestCase):
